@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -6,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { EmployeeForm } from "@/components/EmployeeForm";
-import { Plus, Edit, Trash2 } from "lucide-react";
+import { Plus, Edit, Trash2, LogOut } from "lucide-react";
+import type { User, Session } from "@supabase/supabase-js";
 
 interface Employee {
   id: string;
@@ -20,34 +22,46 @@ interface Employee {
 }
 
 const Index = () => {
+  const navigate = useNavigate();
   const { toast } = useToast();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
 
   useEffect(() => {
-    checkAuth();
-  }, []);
+    // Set up auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        if (!session) {
+          navigate("/auth");
+        }
+      }
+    );
+
+    // Check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      
+      if (!session) {
+        navigate("/auth");
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [navigate]);
 
   useEffect(() => {
     if (user) {
       fetchEmployees();
     }
   }, [user]);
-
-  const checkAuth = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    setUser(user);
-    if (!user) {
-      toast({
-        title: "Authentication Required",
-        description: "Please sign in to access employee management.",
-        variant: "destructive",
-      });
-    }
-  };
 
   const fetchEmployees = async () => {
     try {
@@ -112,32 +126,32 @@ const Index = () => {
     setEditingEmployee(null);
   };
 
+  const handleSignOut = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      
+      toast({
+        title: "Success",
+        description: "Signed out successfully!",
+      });
+      navigate("/auth");
+    } catch (error) {
+      console.error("Error signing out:", error);
+      toast({
+        title: "Error",
+        description: "Failed to sign out.",
+        variant: "destructive",
+      });
+    }
+  };
+
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <CardTitle>Employee Management System</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground mb-4">
-              Please sign in to access the employee management system.
-            </p>
-            <Button 
-              onClick={() => {
-                // For now, we'll create a demo user session
-                // In a real app, you'd implement proper authentication
-                toast({
-                  title: "Demo Mode",
-                  description: "Authentication will be implemented next.",
-                });
-              }}
-              className="w-full"
-            >
-              Sign In (Demo)
-            </Button>
-          </CardContent>
-        </Card>
+        <div className="text-center">
+          <p className="text-muted-foreground">Redirecting to authentication...</p>
+        </div>
       </div>
     );
   }
@@ -162,10 +176,16 @@ const Index = () => {
             <h1 className="text-3xl font-bold">Employee Management</h1>
             <p className="text-muted-foreground">Manage your company's employee records</p>
           </div>
-          <Button onClick={() => setShowForm(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Employee
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={() => setShowForm(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Employee
+            </Button>
+            <Button variant="outline" onClick={handleSignOut}>
+              <LogOut className="mr-2 h-4 w-4" />
+              Sign Out
+            </Button>
+          </div>
         </div>
 
         <Card>
